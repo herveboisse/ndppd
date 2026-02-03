@@ -1,3 +1,7 @@
 ﻿.idea
 cmake-build-*
 ndppd.conf
+ndppd
+*.o
+*.gz
+tags
