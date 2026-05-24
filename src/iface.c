@@ -75,17 +75,33 @@ static void ndL_handle_ns(nd_iface_t *iface, struct ip6_hdr *ip6h, struct icmp6_
 
     struct nd_neighbor_solicit *ns = (struct nd_neighbor_solicit *)ih;
 
+    /* RFC 4861 §7.1.1: Target Address MUST NOT be a multicast address. */
+    if (nd_addr_is_multicast((nd_addr_t *)&ns->nd_ns_target))
+        return;
+
     nd_lladdr_t *src_ll = NULL;
 
     if (!nd_addr_is_unspecified((nd_addr_t *)&ip6h->ip6_src)) {
-        /* RFC 4861 §4.3: SLLAO MUST be present in multicast NS, SHOULD be present in unicast NS.
-         * SHOULD means a conforming sender may omit it; we must still process the NS.
-         * Parse SLLAO if present; leave src_ll = NULL if absent — handled downstream. */
-        if (len - sizeof(struct nd_neighbor_solicit) >= 8) {
-            struct nd_opt_hdr *opt = (struct nd_opt_hdr *)((void *)ns + sizeof(struct nd_neighbor_solicit));
+        /* RFC 4861 §4.6: MUST discard if any option has length zero.
+         * Iterate all options to find SLLAO (RFC 4861 §4.3). */
+        uint8_t *opts = (uint8_t *)ns + sizeof(struct nd_neighbor_solicit);
+        size_t opts_len = len - sizeof(struct nd_neighbor_solicit);
 
-            if (opt->nd_opt_len == 1 && opt->nd_opt_type == ND_OPT_SOURCE_LINKADDR)
-                src_ll = (nd_lladdr_t *)((void *)opt + 2);
+        while (opts_len >= 8) {
+            struct nd_opt_hdr *opt = (struct nd_opt_hdr *)opts;
+
+            if (opt->nd_opt_len == 0)
+                return; /* RFC 4861 §4.6: discard entire packet */
+
+            size_t opt_bytes = (size_t)opt->nd_opt_len * 8;
+            if (opt_bytes > opts_len)
+                break; /* truncated option — stop parsing */
+
+            if (opt->nd_opt_type == ND_OPT_SOURCE_LINKADDR && opt->nd_opt_len == 1)
+                src_ll = (nd_lladdr_t *)(opts + 2);
+
+            opts += opt_bytes;
+            opts_len -= opt_bytes;
         }
 
         /* RFC 4861 §7.7.3: NUD unicast NS SHOULD omit SLLAO since the sender already knows the
@@ -201,6 +217,10 @@ static void ndL_handle_msg(nd_iface_t *iface, ndL_ip6_msg_t *msg)
     uint16_t ilen = plen - i;
 
     if (ndL_calculate_icmp6_checksum(&msg->ip6h, ih, ilen) != ih->icmp6_cksum)
+        return;
+
+    /* RFC 4861 §6.1.1: hop limit MUST be 255 — reject anything that may have been forwarded. */
+    if (msg->ip6h.ip6_hops != 255)
         return;
 
     if (ih->icmp6_type == ND_NEIGHBOR_SOLICIT)
