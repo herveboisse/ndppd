@@ -271,19 +271,20 @@ static void ndL_io_handler(nd_io_t *io, __attribute__((unused)) int events)
 
         for (size_t i = 0; i < (size_t)len;) {
             struct bpf_hdr *bpf_hdr = (struct bpf_hdr *)(buf + i);
+            size_t pkt_offset = i + bpf_hdr->bh_hdrlen;
             i += BPF_WORDALIGN(bpf_hdr->bh_hdrlen + bpf_hdr->bh_caplen);
 
             if (bpf_hdr->bh_caplen < sizeof(ndL_ip6_msg_t)) {
                 continue;
             }
 
-            ndL_ip6_msg_t *msg = (ndL_ip6_msg_t *)buf;
+            ndL_ip6_msg_t *msg = (ndL_ip6_msg_t *)(buf + pkt_offset);
 
             if (msg->eh.ether_type != ntohs(ETHERTYPE_IPV6)) {
                 continue;
             }
 
-            if (ntohs(msg->ip6h.ip6_plen) != len - sizeof(ndL_ip6_msg_t)) {
+            if (ntohs(msg->ip6h.ip6_plen) != bpf_hdr->bh_caplen - sizeof(ndL_ip6_msg_t)) {
                 continue;
             }
 
