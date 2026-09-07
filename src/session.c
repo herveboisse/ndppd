@@ -233,7 +233,8 @@ void nd_session_update(nd_session_t *session)
         nd_log_debug("session [%s] %s VALID -> STALE", //
                      session->rule->proxy->ifname, nd_ntoa(&session->tgt));
 
-        if (nd_conf_keepalive || nd_current_time - session->ins_time < nd_conf_valid_ttl) {
+        if ((nd_conf_keepalive && session->iface) ||
+              nd_current_time - session->ins_time < nd_conf_valid_ttl) {
             session->ons_count = 1;
             nd_iface_send_ns(session->iface, &session->tgt_r);
         } else {
@@ -253,7 +254,8 @@ void nd_session_update(nd_session_t *session)
             // We will only retransmit if nd_conf_keepalive is true, or if the last incoming NS
             // request was made less than nd_conf_valid_ttl milliseconds ago.
 
-            if (!nd_conf_keepalive && nd_current_time - session->ins_time > nd_conf_valid_ttl)
+            if (!(nd_conf_keepalive && session->iface) &&
+                  nd_current_time - session->ins_time > nd_conf_valid_ttl)
                 break;
 
             int shift = session->ons_count / 3;
